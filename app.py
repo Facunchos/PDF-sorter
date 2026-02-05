@@ -371,6 +371,8 @@ if __name__ == '__main__':
         os.makedirs(PDF_FOLDER)
         print(f"Carpeta 'pdfs' creada en: {PDF_FOLDER}")
     
+    # Usar puerto de Railway o 5000 por defecto
+    port = int(os.environ.get('PORT', 5000))
     print(f"Buscando PDFs en: {PDF_FOLDER}")
-    print("Iniciando servidor en http://localhost:5000")
-    app.run(debug=True, port=5000)
+    print(f"Iniciando servidor en puerto {port}")
+    app.run(debug=False, host='0.0.0.0', port=port)

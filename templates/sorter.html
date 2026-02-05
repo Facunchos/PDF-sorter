@@ -15,9 +15,6 @@
                 <span class="progress-text">
                     Página <span id="current-page" class="page-number clickable" onclick="showJumpModal()">{{ start_page }}</span> de <span id="total-pages">{{ total_pages }}</span>
                 </span>
-                <span class="last-page-info" id="last-page-info" style="display: none;">
-                    (Última visitada: <span id="last-visited-page">-</span>)
-                </span>
                 <button class="btn btn-danger" onclick="cancelSort()">Cancelar</button>
             </div>
         </div>
@@ -158,7 +155,6 @@
             lastPdf: null,  // Para "Usar último"
             selectedCopyTarget: null,
             copyTargetIndex: -1,  // Índice seleccionado en lista de copiar
-            lastVisitedPage: null,  // Última página visitada
             stats: {
                 created: 0,
                 pagesAdded: 0,
@@ -182,14 +178,6 @@
         
         function isJumpModalOpen() {
             return document.getElementById('modal-jump').classList.contains('active');
-        }
-        
-        // Actualizar última página visitada
-        function updateLastVisited() {
-            if (state.lastVisitedPage !== null && state.lastVisitedPage !== state.currentPage) {
-                document.getElementById('last-page-info').style.display = 'inline';
-                document.getElementById('last-visited-page').textContent = state.lastVisitedPage;
-            }
         }
         
         // Cargar página actual
@@ -216,7 +204,6 @@
             // Actualizar UI
             document.getElementById('current-page').textContent = state.currentPage;
             document.getElementById('btn-back').disabled = state.history.length === 0;
-            updateLastVisited();
         }
         
         // Navegar a siguiente página
@@ -226,7 +213,6 @@
                 return;
             }
             
-            state.lastVisitedPage = state.currentPage;
             state.history.push(state.currentPage);
             state.currentPage++;
             loadCurrentPage();
@@ -236,7 +222,6 @@
         function goBack() {
             if (state.history.length === 0) return;
             
-            state.lastVisitedPage = state.currentPage;
             state.currentPage = state.history.pop();
             loadCurrentPage();
         }
@@ -265,7 +250,6 @@
                 return;
             }
             
-            state.lastVisitedPage = state.currentPage;
             state.history.push(state.currentPage);
             state.currentPage = pageNum;
             hideJumpModal();

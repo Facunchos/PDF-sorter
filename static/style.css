@@ -621,19 +621,6 @@ h1 {
     text-decoration: underline;
 }
 
-/* ============ LAST PAGE INFO ============ */
-
-.last-page-info {
-    font-size: 0.85rem;
-    color: #888;
-    margin-left: 10px;
-}
-
-.last-page-info span {
-    color: #ffbb33;
-    font-weight: bold;
-}
-
 /* ============ ITEM NUMBER IN COPY LIST ============ */
 
 .item-number {

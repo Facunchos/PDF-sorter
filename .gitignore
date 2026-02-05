@@ -1,0 +1,33 @@
+# Archivos temporales
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.env
+.venv
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Flask
+instance/
+.webassets-cache
+
+# PyMuPDF cache
+*.fitz
+
+# Node modules (si usas algún tool frontend)
+node_modules/
