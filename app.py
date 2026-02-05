@@ -1,20 +1,84 @@
 import os
 import re
-from flask import Flask, render_template, send_file, jsonify, request, abort
+import uuid
+import time
+import threading
+from datetime import datetime, timedelta
+from flask import Flask, render_template, send_file, jsonify, request, abort, session
 from werkzeug.utils import secure_filename
 import fitz  # PyMuPDF
 from io import BytesIO
 
 app = Flask(__name__)
+app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 
-# Carpeta donde se buscan los PDFs
-PDF_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pdfs')
+# Carpeta base donde se almacenan las sesiones
+BASE_PDF_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pdfs')
+
+# Configuración de sesiones
+SESSION_LIFETIME = 3 * 24 * 60 * 60  # 3 días en segundos
+CLEANUP_INTERVAL = 60 * 60  # Limpiar cada hora
 
 # Caracteres prohibidos en nombres de archivo
 FORBIDDEN_CHARS = r'[<>:"/\\|?*\x00-\x1f]'
 
 # Extensiones permitidas para upload
 ALLOWED_EXTENSIONS = {'.pdf'}
+
+
+def get_session_id():
+    """Obtiene o crea un ID de sesión único para el usuario."""
+    if 'session_id' not in session:
+        session['session_id'] = str(uuid.uuid4())
+        session['created_at'] = time.time()
+    
+    # Actualizar último acceso
+    session['last_access'] = time.time()
+    return session['session_id']
+
+
+def get_user_pdf_folder():
+    """Obtiene la carpeta de PDFs específica del usuario."""
+    session_id = get_session_id()
+    user_folder = os.path.join(BASE_PDF_FOLDER, session_id)
+    
+    # Crear carpeta si no existe
+    if not os.path.exists(user_folder):
+        os.makedirs(user_folder)
+    
+    return user_folder
+
+
+def cleanup_old_sessions():
+    """Limpia sesiones inactivas más antiguas que SESSION_LIFETIME."""
+    try:
+        if not os.path.exists(BASE_PDF_FOLDER):
+            return
+        
+        current_time = time.time()
+        for session_dir in os.listdir(BASE_PDF_FOLDER):
+            session_path = os.path.join(BASE_PDF_FOLDER, session_dir)
+            
+            if os.path.isdir(session_path):
+                # Verificar si la carpeta es muy antigua
+                dir_mtime = os.path.getmtime(session_path)
+                if current_time - dir_mtime > SESSION_LIFETIME:
+                    import shutil
+                    shutil.rmtree(session_path)
+                    print(f"Sesión limpiada: {session_dir}")
+    except Exception as e:
+        print(f"Error en cleanup: {e}")
+
+
+def start_cleanup_thread():
+    """Inicia el hilo de limpieza automática."""
+    def cleanup_worker():
+        while True:
+            cleanup_old_sessions()
+            time.sleep(CLEANUP_INTERVAL)
+    
+    cleanup_thread = threading.Thread(target=cleanup_worker, daemon=True)
+    cleanup_thread.start()
 
 
 def get_sorted_folder_name(pdf_name):
@@ -25,7 +89,8 @@ def get_sorted_folder_name(pdf_name):
 
 def get_sorted_folder_path(pdf_name):
     """Obtiene la ruta completa de la carpeta sorted."""
-    return os.path.join(PDF_FOLDER, get_sorted_folder_name(pdf_name))
+    user_folder = get_user_pdf_folder()
+    return os.path.join(user_folder, get_sorted_folder_name(pdf_name))
 
 
 def sanitize_filename(name):
@@ -54,11 +119,12 @@ def is_valid_filename(name):
 def index():
     """Página principal con la tabla de PDFs."""
     pdfs = []
+    user_folder = get_user_pdf_folder()
     
-    if os.path.exists(PDF_FOLDER):
-        for filename in os.listdir(PDF_FOLDER):
+    if os.path.exists(user_folder):
+        for filename in os.listdir(user_folder):
             if filename.lower().endswith('.pdf'):
-                filepath = os.path.join(PDF_FOLDER, filename)
+                filepath = os.path.join(user_folder, filename)
                 try:
                     doc = fitz.open(filepath)
                     page_count = len(doc)
@@ -71,13 +137,14 @@ def index():
                     print(f"Error al abrir {filename}: {e}")
     
     pdfs.sort(key=lambda x: x['name'].lower())
-    return render_template('index.html', pdfs=pdfs)
+    return render_template('index.html', pdfs=pdfs, session_id=get_session_id())
 
 
 @app.route('/open/<filename>')
 def open_pdf(filename):
     """Sirve el PDF original para abrirlo en el navegador."""
-    filepath = os.path.join(PDF_FOLDER, filename)
+    user_folder = get_user_pdf_folder()
+    filepath = os.path.join(user_folder, filename)
     if not os.path.exists(filepath):
         abort(404)
     return send_file(filepath, mimetype='application/pdf')
@@ -86,7 +153,8 @@ def open_pdf(filename):
 @app.route('/download/<filename>')
 def download_pdf(filename):
     """Descarga el PDF original."""
-    filepath = os.path.join(PDF_FOLDER, filename)
+    user_folder = get_user_pdf_folder()
+    filepath = os.path.join(user_folder, filename)
     if not os.path.exists(filepath):
         abort(404)
     return send_file(filepath, mimetype='application/pdf', as_attachment=True, download_name=filename)
@@ -94,7 +162,7 @@ def download_pdf(filename):
 
 @app.route('/upload', methods=['POST'])
 def upload_pdf():
-    """Sube un PDF a la carpeta de PDFs."""
+    """Sube un PDF a la carpeta de PDFs del usuario."""
     if 'file' not in request.files:
         return jsonify({'success': False, 'error': 'No se envió ningún archivo'}), 400
     
@@ -113,7 +181,8 @@ def upload_pdf():
     if not filename:
         filename = 'uploaded.pdf'
     
-    filepath = os.path.join(PDF_FOLDER, filename)
+    user_folder = get_user_pdf_folder()
+    filepath = os.path.join(user_folder, filename)
     
     # Si ya existe, agregar número
     if os.path.exists(filepath):
@@ -121,7 +190,7 @@ def upload_pdf():
         counter = 1
         while os.path.exists(filepath):
             filename = f"{base}_{counter}{ext}"
-            filepath = os.path.join(PDF_FOLDER, filename)
+            filepath = os.path.join(user_folder, filename)
             counter += 1
     
     try:
@@ -133,8 +202,9 @@ def upload_pdf():
 
 @app.route('/delete/<filename>', methods=['DELETE'])
 def delete_pdf(filename):
-    """Elimina un PDF y opcionalmente su carpeta sorted."""
-    filepath = os.path.join(PDF_FOLDER, filename)
+    """Elimina un PDF del usuario y opcionalmente su carpeta sorted."""
+    user_folder = get_user_pdf_folder()
+    filepath = os.path.join(user_folder, filename)
     
     if not os.path.exists(filepath):
         return jsonify({'success': False, 'error': 'PDF no encontrado'}), 404
@@ -161,7 +231,8 @@ def delete_pdf(filename):
 @app.route('/page/<filename>/<int:page_num>')
 def get_page(filename, page_num):
     """Renderiza una página específica del PDF como imagen PNG."""
-    filepath = os.path.join(PDF_FOLDER, filename)
+    user_folder = get_user_pdf_folder()
+    filepath = os.path.join(user_folder, filename)
     if not os.path.exists(filepath):
         abort(404)
     
@@ -190,7 +261,8 @@ def get_page(filename, page_num):
 @app.route('/page-count/<filename>')
 def get_page_count(filename):
     """Obtiene el número total de páginas de un PDF."""
-    filepath = os.path.join(PDF_FOLDER, filename)
+    user_folder = get_user_pdf_folder()
+    filepath = os.path.join(user_folder, filename)
     if not os.path.exists(filepath):
         return jsonify({'error': 'PDF no encontrado'}), 404
     
@@ -206,7 +278,8 @@ def get_page_count(filename):
 @app.route('/sorter/<filename>')
 def sorter(filename):
     """Página del clasificador de páginas."""
-    filepath = os.path.join(PDF_FOLDER, filename)
+    user_folder = get_user_pdf_folder()
+    filepath = os.path.join(user_folder, filename)
     if not os.path.exists(filepath):
         abort(404)
     
@@ -280,7 +353,8 @@ def create_pdf(filename):
     if not new_name.lower().endswith('.pdf'):
         new_name = new_name + '.pdf'
     
-    source_path = os.path.join(PDF_FOLDER, filename)
+    user_folder = get_user_pdf_folder()
+    source_path = os.path.join(user_folder, filename)
     sorted_folder = get_sorted_folder_path(filename)
     
     # Crear carpeta sorted si no existe
@@ -321,7 +395,8 @@ def append_to_pdf(filename):
     page_num = data.get('page')
     target_pdf = data.get('target')
     
-    source_path = os.path.join(PDF_FOLDER, filename)
+    user_folder = get_user_pdf_folder()
+    source_path = os.path.join(user_folder, filename)
     sorted_folder = get_sorted_folder_path(filename)
     target_path = os.path.join(sorted_folder, target_pdf)
     
@@ -366,13 +441,17 @@ def append_to_pdf(filename):
 
 
 if __name__ == '__main__':
-    # Crear carpeta pdfs si no existe
-    if not os.path.exists(PDF_FOLDER):
-        os.makedirs(PDF_FOLDER)
-        print(f"Carpeta 'pdfs' creada en: {PDF_FOLDER}")
+    # Crear carpeta base si no existe
+    if not os.path.exists(BASE_PDF_FOLDER):
+        os.makedirs(BASE_PDF_FOLDER)
+        print(f"Carpeta base 'pdfs' creada en: {BASE_PDF_FOLDER}")
+    
+    # Iniciar hilo de limpieza
+    start_cleanup_thread()
     
     # Usar puerto de Railway o 5000 por defecto
     port = int(os.environ.get('PORT', 5000))
-    print(f"Buscando PDFs en: {PDF_FOLDER}")
+    print(f"Carpeta base de PDFs: {BASE_PDF_FOLDER}")
     print(f"Iniciando servidor en puerto {port}")
+    print(f"Sistema de sesiones activo - limpieza cada {CLEANUP_INTERVAL//3600} horas")
     app.run(debug=False, host='0.0.0.0', port=port)

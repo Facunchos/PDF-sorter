@@ -10,6 +10,12 @@
     <div class="container">
         <h1>📄 PDF Sorter</h1>
         
+        <!-- Session Info -->
+        <div class="session-info">
+            <span class="session-id">Sesión: {{ session_id[:8] }}...</span>
+            <span class="session-note">Tus PDFs son privados y se eliminarán después de 3 días de inactividad</span>
+        </div>
+        
         <!-- Sección de Upload -->
         <div class="upload-section">
             <form id="upload-form" enctype="multipart/form-data">
