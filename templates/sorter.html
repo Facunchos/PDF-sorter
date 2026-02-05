@@ -223,10 +223,9 @@
         
         // ============ PROGRESS BAR ============
         function updateProgressBar() {
-            const processed = state.stats.pagesAdded + state.stats.skipped;
-            const percent = Math.round((processed / state.totalPages) * 100);
+            const percent = Math.round((state.currentPage / state.totalPages) * 100);
             document.getElementById('progress-bar').style.width = percent + '%';
-            document.getElementById('progress-percent').textContent = percent + '%';
+            document.getElementById('progress-percent').textContent = `${state.currentPage}/${state.totalPages} (${percent}%)`;
         }
         
         // ============ UNDO/REDO ============
@@ -261,7 +260,6 @@
             
             state.currentPage = action.page;
             loadCurrentPage();
-            updateProgressBar();
             updateUndoRedoButtons();
         }
         
@@ -298,7 +296,6 @@
             } else {
                 loadCurrentPage();
             }
-            updateProgressBar();
             updateUndoRedoButtons();
         }
         
@@ -465,6 +462,7 @@
             document.getElementById('current-page').textContent = state.currentPage;
             document.getElementById('btn-back').disabled = state.history.length === 0;
             updateBookmarkButton();
+            updateProgressBar();
             if (state.thumbnailsVisible) loadThumbnails();
         }
         
@@ -478,7 +476,6 @@
             state.history.push(state.currentPage);
             state.currentPage++;
             loadCurrentPage();
-            updateProgressBar();
         }
         
         // Regresar a página anterior
