@@ -650,38 +650,6 @@ h1 {
     margin-right: 10px;
 }
 
-/* ============ PROGRESS BAR ============ */
-
-.progress-bar-container {
-    width: 100%;
-    max-width: 400px;
-    height: 24px;
-    background-color: #0f3460;
-    border-radius: 12px;
-    overflow: hidden;
-    position: relative;
-    border: 1px solid #16213e;
-}
-
-.progress-bar {
-    height: 100%;
-    background: linear-gradient(90deg, #00d4ff, #0ea5e9);
-    border-radius: 12px;
-    transition: width 0.3s ease;
-    width: 0%;
-}
-
-.progress-percent {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    font-size: 0.8rem;
-    font-weight: bold;
-    color: #fff;
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
-}
-
 /* ============ THUMBNAILS PANEL ============ */
 
 .thumbnails-panel {

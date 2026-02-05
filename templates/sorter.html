@@ -12,10 +12,6 @@
         <div class="sorter-header">
             <h2>📄 {{ filename }}</h2>
             <div class="progress-info">
-                <div class="progress-bar-container">
-                    <div class="progress-bar" id="progress-bar" style="width: 0%"></div>
-                    <span class="progress-percent" id="progress-percent">0%</span>
-                </div>
                 <span class="progress-text">
                     Página <span id="current-page" class="page-number clickable" onclick="showJumpModal()">{{ start_page }}</span> de <span id="total-pages">{{ total_pages }}</span>
                 </span>
@@ -222,14 +218,6 @@
                 pdfDetails: {}  // { "nombre.pdf": cantidad_paginas }
             }
         };
-        
-        // ============ PROGRESS BAR ============
-        function updateProgressBar() {
-            const processed = state.stats.pagesAdded + state.stats.skipped;
-            const percent = Math.round((processed / state.totalPages) * 100);
-            document.getElementById('progress-bar').style.width = percent + '%';
-            document.getElementById('progress-percent').textContent = percent + '%';
-        }
         
         // ============ UNDO/REDO ============
         function recordAction(action) {
