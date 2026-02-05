@@ -10,12 +10,6 @@
     <div class="container">
         <h1>📄 PDF Sorter</h1>
         
-        <!-- Session Info -->
-        <div class="session-info">
-            <span class="session-id">Sesión: {{ session_id[:8] }}...</span>
-            <span class="session-note">Tus PDFs son privados y se eliminarán después de 3 días de inactividad</span>
-        </div>
-        
         <!-- Sección de Upload -->
         <div class="upload-section">
             <form id="upload-form" enctype="multipart/form-data">
@@ -65,8 +59,8 @@
                     </td>
                     <td class="actions-cell">
                         <a href="{{ url_for('download_pdf', filename=pdf.name) }}" 
-                           class="action-btn download-btn" title="Descargar PDF + carpeta sorted">
-                            📦
+                           class="action-btn download-btn" title="Descargar">
+                            ⬇️
                         </a>
                         <button class="action-btn delete-btn" 
                                 onclick="confirmDelete('{{ pdf.name }}')" 

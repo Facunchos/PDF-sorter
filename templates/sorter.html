@@ -12,12 +12,30 @@
         <div class="sorter-header">
             <h2>📄 {{ filename }}</h2>
             <div class="progress-info">
+                <div class="progress-bar-container">
+                    <div class="progress-bar" id="progress-bar" style="width: 0%"></div>
+                    <span class="progress-percent" id="progress-percent">0%</span>
+                </div>
                 <span class="progress-text">
                     Página <span id="current-page" class="page-number clickable" onclick="showJumpModal()">{{ start_page }}</span> de <span id="total-pages">{{ total_pages }}</span>
                 </span>
                 <button class="btn btn-danger" onclick="cancelSort()">Cancelar</button>
             </div>
         </div>
+        
+        <!-- Panel de miniaturas -->
+        <div class="thumbnails-panel" id="thumbnails-panel">
+            <div class="thumbnails-header">
+                <span>📋 Miniaturas</span>
+                <button class="btn-icon" onclick="toggleThumbnails()" title="Cerrar">✕</button>
+            </div>
+            <div class="thumbnails-list" id="thumbnails-list"></div>
+        </div>
+        
+        <!-- Botón para mostrar miniaturas -->
+        <button class="thumbnails-toggle" id="thumbnails-toggle" onclick="toggleThumbnails()" title="Mostrar miniaturas (T)">
+            📋
+        </button>
         
         <!-- Visor de página -->
         <div class="page-viewer" id="page-viewer">
@@ -30,6 +48,15 @@
         <!-- Controles -->
         <div class="sorter-controls">
             <div class="control-group">
+                <button class="btn btn-secondary" id="btn-undo" onclick="undoAction()" disabled title="Deshacer (Ctrl+Z)">
+                    ↩️ Deshacer
+                </button>
+                <button class="btn btn-secondary" id="btn-redo" onclick="redoAction()" disabled title="Rehacer (Ctrl+Y)">
+                    ↪️ Rehacer
+                </button>
+            </div>
+            
+            <div class="control-group">
                 <button class="btn btn-secondary" id="btn-back" onclick="goBack()" disabled title="Tecla: 1">
                     <span class="key-hint">1</span> ← Regresar
                 </button>
@@ -38,6 +65,9 @@
             <div class="control-group">
                 <button class="btn btn-warning" onclick="passPage()" title="Tecla: 2">
                     <span class="key-hint">2</span> Pass
+                </button>
+                <button class="btn btn-bookmark" id="btn-bookmark" onclick="toggleBookmark()" title="Marcar página (B)">
+                    🔖
                 </button>
             </div>
             
@@ -50,6 +80,12 @@
                 </button>
                 <button class="btn btn-primary" id="btn-use-last" onclick="useLast()" disabled title="Tecla: 5">
                     <span class="key-hint">5</span> Usar último
+                </button>
+            </div>
+            
+            <div class="control-group">
+                <button class="btn btn-secondary" onclick="showBookmarksModal()" title="Ver marcadores (M)">
+                    📑 Marcadores <span id="bookmark-count" class="badge">0</span>
                 </button>
             </div>
         </div>
@@ -125,6 +161,21 @@
         </div>
     </div>
 
+    <!-- Modal: Marcadores -->
+    <div class="modal-overlay" id="modal-bookmarks">
+        <div class="modal">
+            <h3>📑 Páginas Marcadas</h3>
+            <p style="margin-bottom: 15px; color: #888;">Click en una página para ir a ella:</p>
+            <div class="bookmarks-list" id="bookmarks-list">
+                <p class="empty-message">No hay páginas marcadas</p>
+            </div>
+            <div class="modal-buttons">
+                <button class="btn btn-secondary" onclick="hideBookmarksModal()">Cerrar</button>
+                <button class="btn btn-danger" onclick="clearAllBookmarks()">Limpiar todos</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal: Saltar a página -->
     <div class="modal-overlay" id="modal-jump">
         <div class="modal">
@@ -155,6 +206,13 @@
             lastPdf: null,  // Para "Usar último"
             selectedCopyTarget: null,
             copyTargetIndex: -1,  // Índice seleccionado en lista de copiar
+            // Undo/Redo
+            undoStack: [],
+            redoStack: [],
+            // Bookmarks
+            bookmarks: new Set(),
+            // Thumbnails
+            thumbnailsVisible: false,
             stats: {
                 created: 0,
                 pagesAdded: 0,
@@ -162,6 +220,208 @@
                 pdfDetails: {}  // { "nombre.pdf": cantidad_paginas }
             }
         };
+        
+        // ============ PROGRESS BAR ============
+        function updateProgressBar() {
+            const processed = state.stats.pagesAdded + state.stats.skipped;
+            const percent = Math.round((processed / state.totalPages) * 100);
+            document.getElementById('progress-bar').style.width = percent + '%';
+            document.getElementById('progress-percent').textContent = percent + '%';
+        }
+        
+        // ============ UNDO/REDO ============
+        function recordAction(action) {
+            state.undoStack.push(action);
+            state.redoStack = [];
+            updateUndoRedoButtons();
+        }
+        
+        async function undoAction() {
+            if (state.undoStack.length === 0) return;
+            
+            const action = state.undoStack.pop();
+            state.redoStack.push(action);
+            
+            if (action.type === 'create' || action.type === 'append') {
+                await fetch(`/remove-page/${state.filename}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ target: action.targetPdf })
+                });
+                state.stats.pagesAdded--;
+                if (action.type === 'create') {
+                    state.stats.created--;
+                    delete state.stats.pdfDetails[action.targetPdf];
+                } else {
+                    state.stats.pdfDetails[action.targetPdf]--;
+                }
+            } else if (action.type === 'skip') {
+                state.stats.skipped--;
+            }
+            
+            state.currentPage = action.page;
+            loadCurrentPage();
+            updateProgressBar();
+            updateUndoRedoButtons();
+        }
+        
+        async function redoAction() {
+            if (state.redoStack.length === 0) return;
+            
+            const action = state.redoStack.pop();
+            state.undoStack.push(action);
+            
+            if (action.type === 'create') {
+                await fetch(`/create-pdf/${state.filename}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ page: action.page, name: action.targetPdf.replace('.pdf', '') })
+                });
+                state.stats.created++;
+                state.stats.pagesAdded++;
+                state.stats.pdfDetails[action.targetPdf] = 1;
+            } else if (action.type === 'append') {
+                await fetch(`/append-to-pdf/${state.filename}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ page: action.page, target: action.targetPdf })
+                });
+                state.stats.pagesAdded++;
+                state.stats.pdfDetails[action.targetPdf] = (state.stats.pdfDetails[action.targetPdf] || 0) + 1;
+            } else if (action.type === 'skip') {
+                state.stats.skipped++;
+            }
+            
+            state.currentPage = action.page + 1;
+            if (state.currentPage > state.totalPages) {
+                showSummary();
+            } else {
+                loadCurrentPage();
+            }
+            updateProgressBar();
+            updateUndoRedoButtons();
+        }
+        
+        function updateUndoRedoButtons() {
+            document.getElementById('btn-undo').disabled = state.undoStack.length === 0;
+            document.getElementById('btn-redo').disabled = state.redoStack.length === 0;
+        }
+        
+        // ============ BOOKMARKS ============
+        function toggleBookmark() {
+            if (state.bookmarks.has(state.currentPage)) {
+                state.bookmarks.delete(state.currentPage);
+            } else {
+                state.bookmarks.add(state.currentPage);
+            }
+            updateBookmarkButton();
+            updateBookmarkCount();
+            if (state.thumbnailsVisible) loadThumbnails();
+        }
+        
+        function updateBookmarkButton() {
+            const btn = document.getElementById('btn-bookmark');
+            if (state.bookmarks.has(state.currentPage)) {
+                btn.classList.add('active');
+                btn.textContent = '🔖✓';
+            } else {
+                btn.classList.remove('active');
+                btn.textContent = '🔖';
+            }
+        }
+        
+        function updateBookmarkCount() {
+            document.getElementById('bookmark-count').textContent = state.bookmarks.size;
+        }
+        
+        function showBookmarksModal() {
+            const listEl = document.getElementById('bookmarks-list');
+            
+            if (state.bookmarks.size === 0) {
+                listEl.innerHTML = '<p class="empty-message">No hay páginas marcadas</p>';
+            } else {
+                const sorted = [...state.bookmarks].sort((a, b) => a - b);
+                listEl.innerHTML = sorted.map(page => `
+                    <div class="bookmark-item" onclick="goToBookmark(${page})">
+                        <img src="/page/${state.filename}/${page}" alt="Página ${page}" loading="lazy">
+                        <span>Página ${page}</span>
+                    </div>
+                `).join('');
+            }
+            
+            document.getElementById('modal-bookmarks').classList.add('active');
+        }
+        
+        function hideBookmarksModal() {
+            document.getElementById('modal-bookmarks').classList.remove('active');
+        }
+        
+        function goToBookmark(page) {
+            state.history.push(state.currentPage);
+            state.currentPage = page;
+            hideBookmarksModal();
+            loadCurrentPage();
+        }
+        
+        function clearAllBookmarks() {
+            state.bookmarks.clear();
+            updateBookmarkCount();
+            updateBookmarkButton();
+            hideBookmarksModal();
+        }
+        
+        function isBookmarksModalOpen() {
+            return document.getElementById('modal-bookmarks').classList.contains('active');
+        }
+        
+        // ============ THUMBNAILS ============
+        function toggleThumbnails() {
+            state.thumbnailsVisible = !state.thumbnailsVisible;
+            const panel = document.getElementById('thumbnails-panel');
+            const toggle = document.getElementById('thumbnails-toggle');
+            
+            if (state.thumbnailsVisible) {
+                panel.classList.add('visible');
+                toggle.style.display = 'none';
+                loadThumbnails();
+            } else {
+                panel.classList.remove('visible');
+                toggle.style.display = 'block';
+            }
+        }
+        
+        function loadThumbnails() {
+            const listEl = document.getElementById('thumbnails-list');
+            listEl.innerHTML = '';
+            
+            const start = Math.max(1, state.currentPage - 5);
+            const end = Math.min(state.totalPages, state.currentPage + 20);
+            
+            for (let i = start; i <= end; i++) {
+                const thumb = document.createElement('div');
+                thumb.className = 'thumbnail-item' + 
+                    (i === state.currentPage ? ' active' : '') +
+                    (state.bookmarks.has(i) ? ' bookmarked' : '');
+                thumb.innerHTML = `
+                    <img src="/page/${state.filename}/${i}" alt="Página ${i}" loading="lazy">
+                    <span>${i}</span>
+                    ${state.bookmarks.has(i) ? '<span class="bookmark-indicator">🔖</span>' : ''}
+                `;
+                thumb.onclick = () => goToThumbnail(i);
+                listEl.appendChild(thumb);
+            }
+            
+            setTimeout(() => {
+                const active = listEl.querySelector('.active');
+                if (active) active.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            }, 100);
+        }
+        
+        function goToThumbnail(page) {
+            state.history.push(state.currentPage);
+            state.currentPage = page;
+            loadCurrentPage();
+        }
         
         // Verificar qué modal está abierto
         function isModalOpen() {
@@ -204,6 +464,8 @@
             // Actualizar UI
             document.getElementById('current-page').textContent = state.currentPage;
             document.getElementById('btn-back').disabled = state.history.length === 0;
+            updateBookmarkButton();
+            if (state.thumbnailsVisible) loadThumbnails();
         }
         
         // Navegar a siguiente página
@@ -216,6 +478,7 @@
             state.history.push(state.currentPage);
             state.currentPage++;
             loadCurrentPage();
+            updateProgressBar();
         }
         
         // Regresar a página anterior
@@ -258,6 +521,7 @@
         
         // Pass: ignorar página
         function passPage() {
+            recordAction({ type: 'skip', page: state.currentPage });
             state.stats.skipped++;
             nextPage();
         }
@@ -354,6 +618,7 @@
                 state.stats.pagesAdded++;
                 state.stats.pdfDetails[data.name] = 1;
                 
+                recordAction({ type: 'create', page: state.currentPage, targetPdf: data.name });
                 updateUseLastButton();
                 
                 hideCreateModal();
@@ -483,6 +748,7 @@
                     state.stats.pdfDetails[state.selectedCopyTarget] = 1;
                 }
                 
+                recordAction({ type: 'append', page: state.currentPage, targetPdf: state.selectedCopyTarget });
                 updateUseLastButton();
                 
                 hideCopyToModal();
@@ -518,6 +784,7 @@
                 state.stats.pagesAdded++;
                 state.stats.pdfDetails[state.lastPdf]++;
                 
+                recordAction({ type: 'append', page: state.currentPage, targetPdf: state.lastPdf });
                 nextPage();
                 
             } catch (err) {
@@ -586,6 +853,20 @@
         // ============ NAVEGACIÓN POR TECLADO ============
         
         document.addEventListener('keydown', function(e) {
+            // Ctrl+Z para undo, Ctrl+Y para redo
+            if (e.ctrlKey || e.metaKey) {
+                if (e.key === 'z' || e.key === 'Z') {
+                    undoAction();
+                    e.preventDefault();
+                    return;
+                }
+                if (e.key === 'y' || e.key === 'Y') {
+                    redoAction();
+                    e.preventDefault();
+                    return;
+                }
+            }
+            
             // Si estamos en el modal de crear PDF
             if (isCreateModalOpen()) {
                 if (e.key === 'Escape') {
@@ -603,6 +884,15 @@
                     e.preventDefault();
                 } else if (e.key === 'Enter') {
                     jumpToPage();
+                    e.preventDefault();
+                }
+                return;
+            }
+            
+            // Si estamos en el modal de bookmarks
+            if (isBookmarksModalOpen()) {
+                if (e.key === 'Escape') {
+                    hideBookmarksModal();
                     e.preventDefault();
                 }
                 return;
@@ -681,6 +971,21 @@
                 case 'g':
                 case 'G':
                     showJumpModal();
+                    e.preventDefault();
+                    break;
+                case 'b':
+                case 'B':
+                    toggleBookmark();
+                    e.preventDefault();
+                    break;
+                case 'm':
+                case 'M':
+                    showBookmarksModal();
+                    e.preventDefault();
+                    break;
+                case 't':
+                case 'T':
+                    toggleThumbnails();
                     e.preventDefault();
                     break;
             }
