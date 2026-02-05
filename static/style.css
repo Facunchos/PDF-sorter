@@ -924,6 +924,27 @@ h1 {
 
 /* ============ THUMBNAILS TOGGLE ============ */
 
+.thumbnails-toggle {
+    position: fixed;
+    top: 20px;
+    left: 20px;
+    background-color: #16213e;
+    border: 2px solid #9333ea;
+    color: #9333ea;
+    padding: 10px 15px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 1.1rem;
+    z-index: 999;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.thumbnails-toggle:hover {
+    background-color: rgba(147, 51, 234, 0.1);
+    transform: scale(1.05);
+}
+
 .btn-thumbnails {
     background-color: transparent;
     border: 2px solid #9333ea;
