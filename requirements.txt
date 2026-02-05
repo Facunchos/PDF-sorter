@@ -1,4 +1,4 @@
-Flask==3.0.2
-PyMuPDF==1.23.26
-Werkzeug==3.0.1
-gunicorn==21.2.0
+Flask==3.0.3
+PyMuPDF==1.24.11
+Werkzeug==3.0.4
+gunicorn==22.0.0

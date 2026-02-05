@@ -14,6 +14,9 @@ from io import BytesIO
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 
+# Configuración de archivos
+app.config['MAX_CONTENT_LENGTH'] = int(os.environ.get('MAX_CONTENT_LENGTH', '104857600'))  # 100MB por defecto
+
 # Carpeta base donde se almacenan las sesiones
 BASE_PDF_FOLDER = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'pdfs')
 
