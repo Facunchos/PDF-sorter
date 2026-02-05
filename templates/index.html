@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PDF Sorter</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>📄 PDF Sorter</h1>
+        
+        <!-- Sección de Upload -->
+        <div class="upload-section">
+            <form id="upload-form" enctype="multipart/form-data">
+                <label for="pdf-upload" class="upload-label">
+                    <span class="upload-icon">📤</span>
+                    <span class="upload-text">Subir PDF</span>
+                    <input type="file" id="pdf-upload" name="file" accept=".pdf" hidden>
+                </label>
+                <span id="upload-status"></span>
+            </form>
+        </div>
+        
+        {% if pdfs %}
+        <table class="pdf-table">
+            <thead>
+                <tr>
+                    <th>Nombre</th>
+                    <th>Páginas</th>
+                    <th>Abrir PDF</th>
+                    <th>Ordenar</th>
+                    <th>Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for pdf in pdfs %}
+                <tr>
+                    <td>{{ pdf.name }}</td>
+                    <td>{{ pdf.pages }}</td>
+                    <td>
+                        <a href="{{ url_for('open_pdf', filename=pdf.name) }}" 
+                           target="_blank" 
+                           class="btn btn-secondary">
+                            Abrir
+                        </a>
+                    </td>
+                    <td>
+                        <form class="page-selector" action="{{ url_for('sorter', filename=pdf.name) }}" method="get">
+                            <label for="start-{{ loop.index }}">Página:</label>
+                            <input type="number" 
+                                   id="start-{{ loop.index }}" 
+                                   name="start" 
+                                   value="1" 
+                                   min="1" 
+                                   max="{{ pdf.pages }}">
+                            <button type="submit" class="btn btn-primary">Run</button>
+                        </form>
+                    </td>
+                    <td class="actions-cell">
+                        <a href="{{ url_for('download_pdf', filename=pdf.name) }}" 
+                           class="action-btn download-btn" title="Descargar">
+                            ⬇️
+                        </a>
+                        <button class="action-btn delete-btn" 
+                                onclick="confirmDelete('{{ pdf.name }}')" 
+                                title="Eliminar">
+                            🗑️
+                        </button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <div class="empty-state">
+            <h2>No se encontraron PDFs</h2>
+            <p>Coloca archivos PDF en la carpeta <strong>pdfs/</strong> o usa el botón de subir</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Modal: Confirmar eliminación -->
+    <div class="modal-overlay" id="modal-delete">
+        <div class="modal">
+            <h3>⚠️ Confirmar eliminación</h3>
+            <p style="margin-bottom: 15px; color: #888;">¿Estás seguro de eliminar este PDF?</p>
+            <p id="delete-filename" style="color: #ff4444; font-weight: bold; margin-bottom: 15px;"></p>
+            <div class="checkbox-container">
+                <label>
+                    <input type="checkbox" id="delete-sorted" checked>
+                    También eliminar carpeta -sorted asociada
+                </label>
+            </div>
+            <div class="modal-buttons">
+                <button class="btn btn-secondary" onclick="hideDeleteModal()">Cancelar</button>
+                <button class="btn btn-danger" onclick="deletePdf()">Eliminar</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let fileToDelete = null;
+
+        // Upload PDF
+        document.getElementById('pdf-upload').addEventListener('change', async function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const statusEl = document.getElementById('upload-status');
+            statusEl.textContent = 'Subiendo...';
+            statusEl.className = 'uploading';
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const res = await fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    statusEl.textContent = '✓ Subido';
+                    statusEl.className = 'success';
+                    setTimeout(() => location.reload(), 1000);
+                } else {
+                    statusEl.textContent = '✗ ' + data.error;
+                    statusEl.className = 'error';
+                }
+            } catch (err) {
+                statusEl.textContent = '✗ Error de conexión';
+                statusEl.className = 'error';
+            }
+
+            e.target.value = '';
+        });
+
+        // Delete modal
+        function confirmDelete(filename) {
+            fileToDelete = filename;
+            document.getElementById('delete-filename').textContent = filename;
+            document.getElementById('modal-delete').classList.add('active');
+        }
+
+        function hideDeleteModal() {
+            document.getElementById('modal-delete').classList.remove('active');
+            fileToDelete = null;
+        }
+
+        async function deletePdf() {
+            if (!fileToDelete) return;
+
+            const deleteSorted = document.getElementById('delete-sorted').checked;
+
+            try {
+                const res = await fetch(`/delete/${encodeURIComponent(fileToDelete)}`, {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ delete_sorted: deleteSorted })
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    hideDeleteModal();
+                    location.reload();
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (err) {
+                alert('Error de conexión');
+            }
+        }
+
+        // Cerrar modal con Escape
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                hideDeleteModal();
+            }
+        });
+    </script>
+</body>
+</html>

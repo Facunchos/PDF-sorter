@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ordenando: {{ filename }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="sorter-container">
+        <!-- Header -->
+        <div class="sorter-header">
+            <h2>📄 {{ filename }}</h2>
+            <div class="progress-info">
+                <span class="progress-text">
+                    Página <span id="current-page" class="page-number clickable" onclick="showJumpModal()">{{ start_page }}</span> de <span id="total-pages">{{ total_pages }}</span>
+                </span>
+                <span class="last-page-info" id="last-page-info" style="display: none;">
+                    (Última visitada: <span id="last-visited-page">-</span>)
+                </span>
+                <button class="btn btn-danger" onclick="cancelSort()">Cancelar</button>
+            </div>
+        </div>
+        
+        <!-- Visor de página -->
+        <div class="page-viewer" id="page-viewer">
+            <div class="loading">
+                <div class="spinner"></div>
+                <p>Cargando página...</p>
+            </div>
+        </div>
+        
+        <!-- Controles -->
+        <div class="sorter-controls">
+            <div class="control-group">
+                <button class="btn btn-secondary" id="btn-back" onclick="goBack()" disabled title="Tecla: 1">
+                    <span class="key-hint">1</span> ← Regresar
+                </button>
+            </div>
+            
+            <div class="control-group">
+                <button class="btn btn-warning" onclick="passPage()" title="Tecla: 2">
+                    <span class="key-hint">2</span> Pass
+                </button>
+            </div>
+            
+            <div class="control-group">
+                <button class="btn btn-success" onclick="showCreateModal()" title="Tecla: 3">
+                    <span class="key-hint">3</span> Crear nuevo PDF
+                </button>
+                <button class="btn btn-primary" onclick="showCopyToModal()" title="Tecla: 4">
+                    <span class="key-hint">4</span> Copiar a...
+                </button>
+                <button class="btn btn-primary" id="btn-use-last" onclick="useLast()" disabled title="Tecla: 5">
+                    <span class="key-hint">5</span> Usar último
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Modal: Crear nuevo PDF -->
+    <div class="modal-overlay" id="modal-create">
+        <div class="modal">
+            <h3>Crear nuevo PDF</h3>
+            <p style="margin-bottom: 15px; color: #888;">Ingresa el nombre para el nuevo PDF:</p>
+            <input type="text" 
+                   class="modal-input" 
+                   id="new-pdf-name" 
+                   placeholder="Nombre del PDF"
+                   autocomplete="off">
+            <div class="error-message" id="create-error"></div>
+            <div class="modal-buttons">
+                <button class="btn btn-secondary" onclick="hideCreateModal()">Cancelar</button>
+                <button class="btn btn-success" id="btn-create-confirm" onclick="createNewPdf()">Crear</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Modal: Copiar a PDF existente -->
+    <div class="modal-overlay" id="modal-copy">
+        <div class="modal">
+            <h3>Copiar a PDF existente</h3>
+            <p style="margin-bottom: 15px; color: #888;">Selecciona el PDF destino:</p>
+            <div class="pdf-list" id="pdf-list">
+                <div class="loading">
+                    <div class="spinner"></div>
+                </div>
+            </div>
+            <div class="modal-buttons">
+                <button class="btn btn-secondary" onclick="hideCopyToModal()">Cancelar</button>
+                <button class="btn btn-primary" id="btn-copy-confirm" onclick="copyToPdf()" disabled>
+                    Agregar a PDF
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Modal: Resumen final -->
+    <div class="modal-overlay" id="modal-summary">
+        <div class="modal" style="min-width: 500px;">
+            <div class="summary-container">
+                <h2>✅ Proceso completado</h2>
+                
+                <div class="summary-stats">
+                    <div class="stat-card">
+                        <h3 id="stat-created">0</h3>
+                        <p>PDFs creados</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3 id="stat-pages">0</h3>
+                        <p>Páginas guardadas</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3 id="stat-skipped">0</h3>
+                        <p>Páginas ignoradas</p>
+                    </div>
+                </div>
+                
+                <div class="summary-details" id="summary-details" style="display: none;">
+                    <h4>Detalles por PDF:</h4>
+                    <ul id="summary-list"></ul>
+                </div>
+                
+                <button class="btn btn-primary" onclick="goHome()" style="padding: 15px 40px; font-size: 1.1rem;">
+                    Volver al inicio
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal: Saltar a página -->
+    <div class="modal-overlay" id="modal-jump">
+        <div class="modal">
+            <h3>🔢 Saltar a página</h3>
+            <p style="margin-bottom: 15px; color: #888;">Ingresa el número de página:</p>
+            <input type="number" 
+                   class="modal-input" 
+                   id="jump-page-input" 
+                   min="1"
+                   max="{{ total_pages }}"
+                   placeholder="1 - {{ total_pages }}"
+                   autocomplete="off">
+            <div class="error-message" id="jump-error"></div>
+            <div class="modal-buttons">
+                <button class="btn btn-secondary" onclick="hideJumpModal()">Cancelar</button>
+                <button class="btn btn-primary" onclick="jumpToPage()">Ir</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Estado de la aplicación
+        const state = {
+            filename: "{{ filename }}",
+            currentPage: {{ start_page }},
+            totalPages: {{ total_pages }},
+            history: [],  // Para el botón regresar
+            lastPdf: null,  // Para "Usar último"
+            selectedCopyTarget: null,
+            copyTargetIndex: -1,  // Índice seleccionado en lista de copiar
+            lastVisitedPage: null,  // Última página visitada
+            stats: {
+                created: 0,
+                pagesAdded: 0,
+                skipped: 0,
+                pdfDetails: {}  // { "nombre.pdf": cantidad_paginas }
+            }
+        };
+        
+        // Verificar qué modal está abierto
+        function isModalOpen() {
+            return document.querySelector('.modal-overlay.active') !== null;
+        }
+        
+        function isCreateModalOpen() {
+            return document.getElementById('modal-create').classList.contains('active');
+        }
+        
+        function isCopyModalOpen() {
+            return document.getElementById('modal-copy').classList.contains('active');
+        }
+        
+        function isJumpModalOpen() {
+            return document.getElementById('modal-jump').classList.contains('active');
+        }
+        
+        // Actualizar última página visitada
+        function updateLastVisited() {
+            if (state.lastVisitedPage !== null && state.lastVisitedPage !== state.currentPage) {
+                document.getElementById('last-page-info').style.display = 'inline';
+                document.getElementById('last-visited-page').textContent = state.lastVisitedPage;
+            }
+        }
+        
+        // Cargar página actual
+        function loadCurrentPage() {
+            const viewer = document.getElementById('page-viewer');
+            viewer.innerHTML = `
+                <div class="loading">
+                    <div class="spinner"></div>
+                    <p>Cargando página...</p>
+                </div>
+            `;
+            
+            const img = new Image();
+            img.onload = function() {
+                viewer.innerHTML = '';
+                viewer.appendChild(img);
+            };
+            img.onerror = function() {
+                viewer.innerHTML = '<p style="color: #ff4444;">Error al cargar la página</p>';
+            };
+            img.src = `/page/${state.filename}/${state.currentPage}`;
+            img.alt = `Página ${state.currentPage}`;
+            
+            // Actualizar UI
+            document.getElementById('current-page').textContent = state.currentPage;
+            document.getElementById('btn-back').disabled = state.history.length === 0;
+            updateLastVisited();
+        }
+        
+        // Navegar a siguiente página
+        function nextPage() {
+            if (state.currentPage >= state.totalPages) {
+                showSummary();
+                return;
+            }
+            
+            state.lastVisitedPage = state.currentPage;
+            state.history.push(state.currentPage);
+            state.currentPage++;
+            loadCurrentPage();
+        }
+        
+        // Regresar a página anterior
+        function goBack() {
+            if (state.history.length === 0) return;
+            
+            state.lastVisitedPage = state.currentPage;
+            state.currentPage = state.history.pop();
+            loadCurrentPage();
+        }
+        
+        // Saltar a página específica
+        function showJumpModal() {
+            document.getElementById('modal-jump').classList.add('active');
+            const input = document.getElementById('jump-page-input');
+            input.value = '';
+            input.focus();
+            document.getElementById('jump-error').textContent = '';
+        }
+        
+        function hideJumpModal() {
+            document.getElementById('modal-jump').classList.remove('active');
+        }
+        
+        function jumpToPage() {
+            const input = document.getElementById('jump-page-input');
+            const pageNum = parseInt(input.value);
+            const errorEl = document.getElementById('jump-error');
+            
+            if (isNaN(pageNum) || pageNum < 1 || pageNum > state.totalPages) {
+                errorEl.textContent = `Ingresa un número entre 1 y ${state.totalPages}`;
+                input.classList.add('error');
+                return;
+            }
+            
+            state.lastVisitedPage = state.currentPage;
+            state.history.push(state.currentPage);
+            state.currentPage = pageNum;
+            hideJumpModal();
+            loadCurrentPage();
+        }
+        
+        // Pass: ignorar página
+        function passPage() {
+            state.stats.skipped++;
+            nextPage();
+        }
+        
+        // Mostrar modal crear PDF
+        function showCreateModal() {
+            document.getElementById('modal-create').classList.add('active');
+            document.getElementById('new-pdf-name').value = '';
+            document.getElementById('create-error').textContent = '';
+            document.getElementById('new-pdf-name').focus();
+        }
+        
+        function hideCreateModal() {
+            document.getElementById('modal-create').classList.remove('active');
+        }
+        
+        // Validar nombre en tiempo real
+        document.addEventListener('DOMContentLoaded', function() {
+            const input = document.getElementById('new-pdf-name');
+            let timeout;
+            
+            input.addEventListener('input', function() {
+                clearTimeout(timeout);
+                const name = this.value.trim();
+                
+                if (!name) {
+                    document.getElementById('create-error').textContent = '';
+                    input.classList.remove('error');
+                    return;
+                }
+                
+                timeout = setTimeout(() => {
+                    fetch(`/check-name/${state.filename}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name: name })
+                    })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (!data.valid) {
+                            document.getElementById('create-error').textContent = data.error;
+                            input.classList.add('error');
+                        } else {
+                            document.getElementById('create-error').textContent = '';
+                            input.classList.remove('error');
+                        }
+                    });
+                }, 300);
+            });
+            
+            // Enter para confirmar
+            input.addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    createNewPdf();
+                }
+            });
+            
+            // Cargar primera página
+            loadCurrentPage();
+        });
+        
+        // Crear nuevo PDF
+        async function createNewPdf() {
+            const name = document.getElementById('new-pdf-name').value.trim();
+            const errorEl = document.getElementById('create-error');
+            
+            if (!name) {
+                errorEl.textContent = 'El nombre no puede estar vacío';
+                document.getElementById('new-pdf-name').classList.add('error');
+                return;
+            }
+            
+            try {
+                const res = await fetch(`/create-pdf/${state.filename}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        page: state.currentPage, 
+                        name: name 
+                    })
+                });
+                
+                const data = await res.json();
+                
+                if (!data.success) {
+                    errorEl.textContent = data.error;
+                    document.getElementById('new-pdf-name').classList.add('error');
+                    return;
+                }
+                
+                // Éxito
+                state.lastPdf = data.name;
+                state.stats.created++;
+                state.stats.pagesAdded++;
+                state.stats.pdfDetails[data.name] = 1;
+                
+                updateUseLastButton();
+                
+                hideCreateModal();
+                nextPage();
+                
+            } catch (err) {
+                errorEl.textContent = 'Error de conexión';
+            }
+        }
+        
+        // Mostrar modal copiar a
+        async function showCopyToModal() {
+            document.getElementById('modal-copy').classList.add('active');
+            state.selectedCopyTarget = null;
+            document.getElementById('btn-copy-confirm').disabled = true;
+            
+            const listEl = document.getElementById('pdf-list');
+            listEl.innerHTML = '<div class="loading"><div class="spinner"></div></div>';
+            
+            try {
+                const res = await fetch(`/list-sorted/${state.filename}`);
+                const data = await res.json();
+                
+                if (data.pdfs.length === 0) {
+                    listEl.innerHTML = `
+                        <div class="pdf-list-empty">
+                            <p>No hay PDFs en la carpeta "${data.folder}"</p>
+                            <p style="margin-top: 10px; font-size: 0.85rem;">
+                                Usa "Crear nuevo PDF" primero
+                            </p>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                listEl.innerHTML = '';
+                state.copyTargetIndex = -1;
+                data.pdfs.forEach((pdf, index) => {
+                    const item = document.createElement('div');
+                    item.className = 'pdf-list-item';
+                    item.setAttribute('data-index', index);
+                    item.innerHTML = `<span class="item-number">${index + 1}</span> ${pdf}`;
+                    item.onclick = () => selectCopyTargetByIndex(index);
+                    listEl.appendChild(item);
+                });
+                
+            } catch (err) {
+                listEl.innerHTML = '<p style="color: #ff4444;">Error al cargar PDFs</p>';
+            }
+        }
+        
+        function hideCopyToModal() {
+            document.getElementById('modal-copy').classList.remove('active');
+            state.copyTargetIndex = -1;
+        }
+        
+        function selectCopyTarget(pdf, element) {
+            // Deseleccionar anterior
+            document.querySelectorAll('.pdf-list-item').forEach(el => {
+                el.classList.remove('selected');
+            });
+            
+            // Seleccionar nuevo
+            element.classList.add('selected');
+            state.selectedCopyTarget = pdf;
+            document.getElementById('btn-copy-confirm').disabled = false;
+        }
+        
+        function selectCopyTargetByIndex(index) {
+            const items = document.querySelectorAll('.pdf-list-item');
+            if (index < 0 || index >= items.length) return;
+            
+            // Deseleccionar anterior
+            items.forEach(el => el.classList.remove('selected'));
+            
+            // Seleccionar nuevo
+            const item = items[index];
+            item.classList.add('selected');
+            item.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            
+            state.copyTargetIndex = index;
+            // Extraer nombre del PDF (después del número)
+            const pdfName = item.textContent.trim().replace(/^\d+\s+/, '');
+            state.selectedCopyTarget = pdfName;
+            document.getElementById('btn-copy-confirm').disabled = false;
+        }
+        
+        function navigateCopyList(direction) {
+            const items = document.querySelectorAll('.pdf-list-item');
+            if (items.length === 0) return;
+            
+            let newIndex = state.copyTargetIndex + direction;
+            if (newIndex < 0) newIndex = 0;
+            if (newIndex >= items.length) newIndex = items.length - 1;
+            
+            selectCopyTargetByIndex(newIndex);
+        }
+        
+        // Copiar a PDF existente
+        async function copyToPdf() {
+            if (!state.selectedCopyTarget) return;
+            
+            try {
+                const res = await fetch(`/append-to-pdf/${state.filename}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        page: state.currentPage,
+                        target: state.selectedCopyTarget
+                    })
+                });
+                
+                const data = await res.json();
+                
+                if (!data.success) {
+                    alert('Error: ' + data.error);
+                    return;
+                }
+                
+                // Éxito
+                state.lastPdf = state.selectedCopyTarget;
+                state.stats.pagesAdded++;
+                
+                if (state.stats.pdfDetails[state.selectedCopyTarget]) {
+                    state.stats.pdfDetails[state.selectedCopyTarget]++;
+                } else {
+                    state.stats.pdfDetails[state.selectedCopyTarget] = 1;
+                }
+                
+                updateUseLastButton();
+                
+                hideCopyToModal();
+                nextPage();
+                
+            } catch (err) {
+                alert('Error de conexión');
+            }
+        }
+        
+        // Usar último PDF
+        async function useLast() {
+            if (!state.lastPdf) return;
+            
+            try {
+                const res = await fetch(`/append-to-pdf/${state.filename}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        page: state.currentPage,
+                        target: state.lastPdf
+                    })
+                });
+                
+                const data = await res.json();
+                
+                if (!data.success) {
+                    alert('Error: ' + data.error);
+                    return;
+                }
+                
+                // Éxito
+                state.stats.pagesAdded++;
+                state.stats.pdfDetails[state.lastPdf]++;
+                
+                nextPage();
+                
+            } catch (err) {
+                alert('Error de conexión');
+            }
+        }
+        
+        // Cancelar proceso
+        function cancelSort() {
+            if (state.stats.pagesAdded > 0 || state.stats.skipped > 0) {
+                showSummary();
+            } else {
+                goHome();
+            }
+        }
+        
+        // Mostrar resumen
+        function showSummary() {
+            document.getElementById('stat-created').textContent = state.stats.created;
+            document.getElementById('stat-pages').textContent = state.stats.pagesAdded;
+            document.getElementById('stat-skipped').textContent = state.stats.skipped;
+            
+            const detailsEl = document.getElementById('summary-details');
+            const listEl = document.getElementById('summary-list');
+            
+            const pdfNames = Object.keys(state.stats.pdfDetails);
+            if (pdfNames.length > 0) {
+                detailsEl.style.display = 'block';
+                listEl.innerHTML = '';
+                
+                pdfNames.forEach(pdf => {
+                    const li = document.createElement('li');
+                    li.innerHTML = `
+                        <span>${pdf}</span>
+                        <span>${state.stats.pdfDetails[pdf]} página(s)</span>
+                    `;
+                    listEl.appendChild(li);
+                });
+            }
+            
+            document.getElementById('modal-summary').classList.add('active');
+        }
+        
+        // Actualizar botón "Usar último"
+        function updateUseLastButton() {
+            const btn = document.getElementById('btn-use-last');
+            if (state.lastPdf) {
+                btn.disabled = false;
+                const shortName = state.lastPdf.length > 25 
+                    ? state.lastPdf.substring(0, 22) + '...' 
+                    : state.lastPdf;
+                btn.textContent = `→ ${shortName.replace('.pdf', '')}`;
+                btn.title = `Agregar a: ${state.lastPdf}`;
+            } else {
+                btn.disabled = true;
+                btn.textContent = 'Usar último';
+                btn.title = '';
+            }
+        }
+        
+        // Volver al inicio
+        function goHome() {
+            window.location.href = '/';
+        }
+        
+        // ============ NAVEGACIÓN POR TECLADO ============
+        
+        document.addEventListener('keydown', function(e) {
+            // Si estamos en el modal de crear PDF
+            if (isCreateModalOpen()) {
+                if (e.key === 'Escape') {
+                    hideCreateModal();
+                    e.preventDefault();
+                }
+                // Enter ya está manejado en el input
+                return;
+            }
+            
+            // Si estamos en el modal de saltar página
+            if (isJumpModalOpen()) {
+                if (e.key === 'Escape') {
+                    hideJumpModal();
+                    e.preventDefault();
+                } else if (e.key === 'Enter') {
+                    jumpToPage();
+                    e.preventDefault();
+                }
+                return;
+            }
+            
+            // Si estamos en el modal de copiar a
+            if (isCopyModalOpen()) {
+                switch(e.key) {
+                    case 'Escape':
+                        hideCopyToModal();
+                        e.preventDefault();
+                        break;
+                    case 'ArrowDown':
+                        navigateCopyList(1);
+                        e.preventDefault();
+                        break;
+                    case 'ArrowUp':
+                        navigateCopyList(-1);
+                        e.preventDefault();
+                        break;
+                    case 'Enter':
+                        if (state.selectedCopyTarget) {
+                            copyToPdf();
+                        }
+                        e.preventDefault();
+                        break;
+                    // Números 1-9 para selección rápida
+                    case '1': case '2': case '3': case '4': case '5':
+                    case '6': case '7': case '8': case '9':
+                        const num = parseInt(e.key) - 1;
+                        selectCopyTargetByIndex(num);
+                        e.preventDefault();
+                        break;
+                }
+                return;
+            }
+            
+            // Si estamos en el modal de resumen
+            if (document.getElementById('modal-summary').classList.contains('active')) {
+                if (e.key === 'Enter' || e.key === 'Escape') {
+                    goHome();
+                    e.preventDefault();
+                }
+                return;
+            }
+            
+            // Controles principales (sin modal abierto)
+            const key = e.key;
+            
+            switch(key) {
+                case '1':
+                case 'Numpad1':
+                    if (state.history.length > 0) goBack();
+                    e.preventDefault();
+                    break;
+                case '2':
+                case 'Numpad2':
+                    passPage();
+                    e.preventDefault();
+                    break;
+                case '3':
+                case 'Numpad3':
+                    showCreateModal();
+                    e.preventDefault();
+                    break;
+                case '4':
+                case 'Numpad4':
+                    showCopyToModal();
+                    e.preventDefault();
+                    break;
+                case '5':
+                case 'Numpad5':
+                    if (state.lastPdf) useLast();
+                    e.preventDefault();
+                    break;
+                case 'g':
+                case 'G':
+                    showJumpModal();
+                    e.preventDefault();
+                    break;
+            }
+        });
+    </script>
+</body>
+</html>
