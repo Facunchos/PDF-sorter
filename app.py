@@ -3,6 +3,8 @@ import re
 import uuid
 import time
 import threading
+import zipfile
+import tempfile
 from datetime import datetime, timedelta
 from flask import Flask, render_template, send_file, jsonify, request, abort, session
 from werkzeug.utils import secure_filename
@@ -152,12 +154,58 @@ def open_pdf(filename):
 
 @app.route('/download/<filename>')
 def download_pdf(filename):
-    """Descarga el PDF original."""
+    """Descarga el PDF original junto con su carpeta sorted en un ZIP."""
     user_folder = get_user_pdf_folder()
-    filepath = os.path.join(user_folder, filename)
-    if not os.path.exists(filepath):
+    pdf_path = os.path.join(user_folder, filename)
+    sorted_folder = get_sorted_folder_path(filename)
+    
+    if not os.path.exists(pdf_path):
         abort(404)
-    return send_file(filepath, mimetype='application/pdf', as_attachment=True, download_name=filename)
+    
+    # Crear archivo ZIP temporal
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.zip')
+    zip_filename = f"{os.path.splitext(filename)[0]}_completo.zip"
+    
+    try:
+        with zipfile.ZipFile(temp_file.name, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            # Agregar PDF original
+            zipf.write(pdf_path, filename)
+            
+            # Agregar carpeta sorted si existe
+            if os.path.exists(sorted_folder):
+                for root, dirs, files in os.walk(sorted_folder):
+                    for file in files:
+                        if file.lower().endswith('.pdf'):
+                            file_path = os.path.join(root, file)
+                            # Crear ruta relativa dentro del ZIP
+                            arcname = os.path.join(get_sorted_folder_name(filename), file)
+                            zipf.write(file_path, arcname)
+        
+        # Enviar archivo y programar eliminación
+        def remove_temp_file():
+            try:
+                os.unlink(temp_file.name)
+            except:
+                pass
+        
+        # Programar eliminación del archivo temporal en 5 minutos
+        timer = threading.Timer(300.0, remove_temp_file)
+        timer.start()
+        
+        return send_file(
+            temp_file.name,
+            mimetype='application/zip',
+            as_attachment=True,
+            download_name=zip_filename
+        )
+        
+    except Exception as e:
+        # Limpiar archivo temporal si hay error
+        try:
+            os.unlink(temp_file.name)
+        except:
+            pass
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/upload', methods=['POST'])
